@@ -31,8 +31,6 @@ import java.util.Random;
 
 public class FlowerBoostClient implements ClientModInitializer {
 
-    private static final int WAIT_TICKS = 3;  // czas na odpowiedź serwera po bone mealu
-    private static final int STEP_TICKS = 3;  // ticki między zmianą slotu a postawieniem (1 = najszybciej, 2 = bezpieczniej)
     private static final int MAX_PLACE = 30;
 
     private static final Random RND = new Random();
@@ -65,6 +63,22 @@ public class FlowerBoostClient implements ClientModInitializer {
                                             FlowerConfig.save();
                                             ctx.getSource().sendFeedback(Component.literal("Zasięg: " + FlowerConfig.radius));
                                             return 1;
+                                        })))
+                        .then(ClientCommandManager.literal("wait")
+                                .then(ClientCommandManager.argument("n", IntegerArgumentType.integer(1, 100))
+                                        .executes(ctx -> {
+                                            FlowerConfig.waitTicks = IntegerArgumentType.getInteger(ctx, "n");
+                                            FlowerConfig.save();
+                                            ctx.getSource().sendFeedback(Component.literal("Wait: " + FlowerConfig.waitTicks + " tick"));
+                                            return 1;
+                                        })))
+                        .then(ClientCommandManager.literal("step")
+                                .then(ClientCommandManager.argument("n", IntegerArgumentType.integer(1, 100))
+                                        .executes(ctx -> {
+                                            FlowerConfig.stepTicks = IntegerArgumentType.getInteger(ctx, "n");
+                                            FlowerConfig.save();
+                                            ctx.getSource().sendFeedback(Component.literal("Step: " + FlowerConfig.stepTicks + " tick"));
+                                            return 1;
                                         })))));
 
         UseBlockCallback.EVENT.register((player, world, hand, hitResult) -> {
@@ -77,7 +91,7 @@ public class FlowerBoostClient implements ClientModInitializer {
             if (!world.getBlockState(pos).is(Blocks.GRASS_BLOCK)) return InteractionResult.PASS;
 
             center = pos;
-            countdown = WAIT_TICKS;
+            countdown = FlowerConfig.waitTicks;
             originalSlot = mc.player.getInventory().selected;
             return InteractionResult.PASS;
         });
@@ -142,7 +156,7 @@ public class FlowerBoostClient implements ClientModInitializer {
             return;
         }
         player.getInventory().selected = slot;
-        stepWait = STEP_TICKS - 1;
+        stepWait = FlowerConfig.stepTicks - 1;
         placing = true;
     }
 
@@ -183,7 +197,7 @@ public class FlowerBoostClient implements ClientModInitializer {
             return;
         }
         player.getInventory().selected = slot;
-        stepWait = STEP_TICKS - 1;
+        stepWait = FlowerConfig.stepTicks - 1;
     }
 
     private static int pickSlot(LocalPlayer player) {
