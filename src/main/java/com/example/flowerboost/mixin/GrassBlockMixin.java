@@ -1,13 +1,13 @@
 package com.example.flowerboost.mixin;
 
 import com.example.flowerboost.FlowerConfig;
-import net.minecraft.block.Block;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.Blocks;
-import net.minecraft.block.GrassBlock;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.random.Random;
+import net.minecraft.core.BlockPos;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.util.RandomSource;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.GrassBlock;
+import net.minecraft.world.level.block.state.BlockState;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -29,19 +29,18 @@ public class GrassBlockMixin {
             Blocks.CORNFLOWER, Blocks.LILY_OF_THE_VALLEY
     };
 
-    @Inject(method = "grow", at = @At("HEAD"), cancellable = true)
-    private void flowerboost$grow(ServerWorld world, Random random, BlockPos pos,
+    @Inject(method = "performBonemeal", at = @At("HEAD"), cancellable = true)
+    private void flowerboost$grow(ServerLevel level, RandomSource random, BlockPos pos,
                                   BlockState state, CallbackInfo ci) {
         int r = FlowerConfig.radius;
         List<BlockPos> spots = new ArrayList<>();
 
-        // szukamy wolnych miejsc nad blokami trawy w okolicy
         for (int dx = -r; dx <= r; dx++) {
             for (int dz = -r; dz <= r; dz++) {
                 for (int dy = -1; dy <= 1; dy++) {
-                    BlockPos above = pos.add(dx, dy + 1, dz);
-                    if (world.getBlockState(above).isAir()
-                            && world.getBlockState(above.down()).isOf(Blocks.GRASS_BLOCK)) {
+                    BlockPos above = pos.offset(dx, dy + 1, dz);
+                    if (level.getBlockState(above).isAir()
+                            && level.getBlockState(above.below()).is(Blocks.GRASS_BLOCK)) {
                         spots.add(above);
                     }
                 }
@@ -53,16 +52,16 @@ public class GrassBlockMixin {
         int placed = 0;
         for (BlockPos spot : spots) {
             if (placed < FlowerConfig.flowerCount) {
-                BlockState flower = FLOWERS[random.nextInt(FLOWERS.length)].getDefaultState();
-                if (flower.canPlaceAt(world, spot)) {
-                    world.setBlockState(spot, flower, Block.NOTIFY_ALL);
+                BlockState flower = FLOWERS[random.nextInt(FLOWERS.length)].defaultBlockState();
+                if (flower.canSurvive(level, spot)) {
+                    level.setBlock(spot, flower, Block.UPDATE_ALL);
                     placed++;
                 }
             } else if (random.nextInt(2) == 0) {
-                world.setBlockState(spot, Blocks.SHORT_GRASS.getDefaultState(), Block.NOTIFY_ALL);
+                level.setBlock(spot, Blocks.SHORT_GRASS.defaultBlockState(), Block.UPDATE_ALL);
             }
         }
 
-        ci.cancel(); // wyłącza standardowe, losowe zachowanie bone meala na trawie
+        ci.cancel();
     }
 }
