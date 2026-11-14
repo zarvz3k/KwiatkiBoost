@@ -10,6 +10,7 @@ import net.fabricmc.fabric.api.event.player.UseBlockCallback;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.world.InteractionHand;
@@ -20,7 +21,6 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.core.Direction;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
@@ -31,16 +31,23 @@ import java.util.Random;
 
 public class FlowerBoostClient implements ClientModInitializer {
 
-    private static final int WAIT_TICKS = 8; // czas na odpowiedź serwera po bone mealu
+    private static final int WAIT_TICKS = 4;  // czas na odpowiedź serwera po bone mealu
+    private static final int STEP_TICKS = 1;  // ticki między zmianą slotu a postawieniem (1 = najszybciej, 2 = bezpieczniej)
     private static final int MAX_PLACE = 30;
+
+    private static final Random RND = new Random();
 
     private static int countdown = -1;
     private static BlockPos center = null;
     private static int originalSlot = 0;
 
+    // faza stawiania
+    private static boolean placing = false;
+    private static int stepWait = 0;
+    private static final List<BlockPos> queue = new ArrayList<>();
+
     @Override
     public void onInitializeClient() {
-        // komendy tylko u Ciebie: /fbc count 6, /fbc radius 1
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) ->
                 dispatcher.register(ClientCommandManager.literal("fbc")
                         .then(ClientCommandManager.literal("count")
@@ -60,11 +67,11 @@ public class FlowerBoostClient implements ClientModInitializer {
                                             return 1;
                                         })))));
 
-        // zapamiętaj kliknięcie bone mealem w trawę (tylko na cudzych serwerach)
         UseBlockCallback.EVENT.register((player, world, hand, hitResult) -> {
             Minecraft mc = Minecraft.getInstance();
             if (!world.isClientSide()) return InteractionResult.PASS;
-            if (mc.getSingleplayerServer() != null) return InteractionResult.PASS; // w singleplayerze robi to mod serwerowy
+            if (mc.getSingleplayerServer() != null) return InteractionResult.PASS;
+            if (placing) return InteractionResult.PASS;
             if (!player.getItemInHand(hand).is(Items.BONE_MEAL)) return InteractionResult.PASS;
             BlockPos pos = hitResult.getBlockPos();
             if (!world.getBlockState(pos).is(Blocks.GRASS_BLOCK)) return InteractionResult.PASS;
@@ -76,15 +83,27 @@ public class FlowerBoostClient implements ClientModInitializer {
         });
 
         ClientTickEvents.END_CLIENT_TICK.register(mc -> {
+            if (mc.player == null || mc.level == null || mc.gameMode == null) {
+                placing = false;
+                countdown = -1;
+                return;
+            }
+
+            if (placing) {
+                stepPlace(mc, mc.player, mc.level);
+                return;
+            }
+
             if (countdown < 0) return;
             if (--countdown > 0) return;
             countdown = -1;
-            if (mc.player == null || mc.level == null || mc.gameMode == null || center == null) return;
-            topUp(mc, mc.player, mc.level, center);
+            if (center == null) return;
+            prepare(mc.player, mc.level, center);
         });
     }
 
-    private static void topUp(Minecraft mc, LocalPlayer player, Level level, BlockPos c) {
+    // policz brakujące kwiatki i przygotuj kolejkę
+    private static void prepare(LocalPlayer player, Level level, BlockPos c) {
         int r = FlowerConfig.radius;
 
         int current = 0;
@@ -109,31 +128,74 @@ public class FlowerBoostClient implements ClientModInitializer {
                 }
         Collections.shuffle(grassBlocks);
 
-        Random rnd = new Random();
-        for (BlockPos grass : grassBlocks) {
-            if (missing <= 0) break;
+        queue.clear();
+        for (BlockPos g : grassBlocks) {
+            if (queue.size() >= missing) break;
+            queue.add(g);
+        }
+        if (queue.isEmpty()) return;
 
-            // wybierz losowy kwiatek z paska szybkiego dostępu
-            List<Integer> slots = new ArrayList<>();
-            for (int i = 0; i < 9; i++) {
-                ItemStack s = player.getInventory().getItem(i);
-                if (!s.isEmpty() && s.getItem() instanceof BlockItem bi
-                        && bi.getBlock().defaultBlockState().is(BlockTags.SMALL_FLOWERS)) {
-                    slots.add(i);
-                }
-            }
-            if (slots.isEmpty()) {
-                player.displayClientMessage(Component.literal("Brak kwiatków na pasku szybkiego dostępu!"), true);
-                break;
-            }
+        int slot = pickSlot(player);
+        if (slot < 0) {
+            player.displayClientMessage(Component.literal("Brak kwiatków na pasku szybkiego dostępu!"), true);
+            queue.clear();
+            return;
+        }
+        player.getInventory().selected = slot;
+        stepWait = STEP_TICKS - 1;
+        placing = true;
+    }
 
-            player.getInventory().selected = slots.get(rnd.nextInt(slots.size()));
-            BlockHitResult hit = new BlockHitResult(
-                    Vec3.atCenterOf(grass).add(0, 0.5, 0), Direction.UP, grass, false);
-            mc.gameMode.useItemOn(player, InteractionHand.MAIN_HAND, hit);
-            missing--;
+    // jeden krok: postaw kwiatek (slot był wybrany w poprzednim ticku), potem wybierz slot na następny
+    private static void stepPlace(Minecraft mc, LocalPlayer player, Level level) {
+        if (stepWait > 0) {
+            stepWait--;
+            return;
         }
 
-        player.getInventory().selected = originalSlot; // wróć do bone meala
+        if (!queue.isEmpty()) {
+            BlockPos grass = queue.remove(0);
+            ItemStack held = player.getInventory().getItem(player.getInventory().selected);
+            boolean heldIsFlower = !held.isEmpty() && held.getItem() instanceof BlockItem bi
+                    && bi.getBlock().defaultBlockState().is(BlockTags.SMALL_FLOWERS);
+            BlockState above = level.getBlockState(grass.above());
+
+            if (heldIsFlower && level.getBlockState(grass).is(Blocks.GRASS_BLOCK)
+                    && (above.isAir() || above.is(Blocks.SHORT_GRASS))) {
+                BlockHitResult hit = new BlockHitResult(
+                        Vec3.atCenterOf(grass).add(0, 0.5, 0), Direction.UP, grass, false);
+                mc.gameMode.useItemOn(player, InteractionHand.MAIN_HAND, hit);
+            }
+        }
+
+        if (queue.isEmpty()) {
+            player.getInventory().selected = originalSlot; // wróć do bone meala
+            placing = false;
+            return;
+        }
+
+        int slot = pickSlot(player);
+        if (slot < 0) {
+            player.displayClientMessage(Component.literal("Brak kwiatków na pasku szybkiego dostępu!"), true);
+            queue.clear();
+            player.getInventory().selected = originalSlot;
+            placing = false;
+            return;
+        }
+        player.getInventory().selected = slot;
+        stepWait = STEP_TICKS - 1;
+    }
+
+    private static int pickSlot(LocalPlayer player) {
+        List<Integer> slots = new ArrayList<>();
+        for (int i = 0; i < 9; i++) {
+            ItemStack s = player.getInventory().getItem(i);
+            if (!s.isEmpty() && s.getItem() instanceof BlockItem bi
+                    && bi.getBlock().defaultBlockState().is(BlockTags.SMALL_FLOWERS)) {
+                slots.add(i);
+            }
+        }
+        if (slots.isEmpty()) return -1;
+        return slots.get(RND.nextInt(slots.size()));
     }
 }
