@@ -31,8 +31,8 @@ import java.util.Random;
 
 public class FlowerBoostClient implements ClientModInitializer {
 
-    private static final int WAIT_TICKS = 4;  // czas na odpowiedź serwera po bone mealu
-    private static final int STEP_TICKS = 1;  // ticki między zmianą slotu a postawieniem (1 = najszybciej, 2 = bezpieczniej)
+    private static final int WAIT_TICKS = 3;  // czas na odpowiedź serwera po bone mealu
+    private static final int STEP_TICKS = 3;  // ticki między zmianą slotu a postawieniem (1 = najszybciej, 2 = bezpieczniej)
     private static final int MAX_PLACE = 30;
 
     private static final Random RND = new Random();
