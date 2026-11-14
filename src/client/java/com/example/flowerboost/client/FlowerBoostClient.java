@@ -12,6 +12,7 @@ import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
@@ -38,6 +39,8 @@ public class FlowerBoostClient implements ClientModInitializer {
     private static int countdown = -1;
     private static BlockPos center = null;
     private static int originalSlot = 0;
+    private static float origYaw = 0;
+    private static float origPitch = 0;
 
     // faza stawiania
     private static boolean placing = false;
@@ -93,6 +96,8 @@ public class FlowerBoostClient implements ClientModInitializer {
             center = pos;
             countdown = FlowerConfig.waitTicks;
             originalSlot = mc.player.getInventory().selected;
+            origYaw = mc.player.getYRot();
+            origPitch = mc.player.getXRot();
             return InteractionResult.PASS;
         });
 
@@ -160,7 +165,7 @@ public class FlowerBoostClient implements ClientModInitializer {
         placing = true;
     }
 
-    // jeden krok: postaw kwiatek (slot był wybrany w poprzednim ticku), potem wybierz slot na następny
+    // jeden krok: obróć się, postaw kwiatek, wybierz slot na następny
     private static void stepPlace(Minecraft mc, LocalPlayer player, Level level) {
         if (stepWait > 0) {
             stepWait--;
@@ -178,12 +183,14 @@ public class FlowerBoostClient implements ClientModInitializer {
                     && (above.isAir() || above.is(Blocks.SHORT_GRASS))) {
                 BlockHitResult hit = new BlockHitResult(
                         Vec3.atCenterOf(grass).add(0, 0.5, 0), Direction.UP, grass, false);
+                lookAt(player, grass);
                 mc.gameMode.useItemOn(player, InteractionHand.MAIN_HAND, hit);
             }
         }
 
         if (queue.isEmpty()) {
             player.getInventory().selected = originalSlot; // wróć do bone meala
+            setLook(player, origYaw, origPitch);
             placing = false;
             return;
         }
@@ -193,11 +200,31 @@ public class FlowerBoostClient implements ClientModInitializer {
             player.displayClientMessage(Component.literal("Brak kwiatków na pasku szybkiego dostępu!"), true);
             queue.clear();
             player.getInventory().selected = originalSlot;
+            setLook(player, origYaw, origPitch);
             placing = false;
             return;
         }
         player.getInventory().selected = slot;
         stepWait = FlowerConfig.stepTicks - 1;
+    }
+
+    // obróć się do środka górnej ścianki bloku i od razu powiadom serwer
+    private static void lookAt(LocalPlayer player, BlockPos grass) {
+        Vec3 eye = player.getEyePosition();
+        Vec3 t = Vec3.atCenterOf(grass).add(0, 0.5, 0);
+        double dx = t.x - eye.x;
+        double dy = t.y - eye.y;
+        double dz = t.z - eye.z;
+        float yaw = (float) (Math.toDegrees(Math.atan2(dz, dx)) - 90.0);
+        float pitch = (float) -Math.toDegrees(Math.atan2(dy, Math.sqrt(dx * dx + dz * dz)));
+        setLook(player, yaw, pitch);
+    }
+
+    private static void setLook(LocalPlayer player, float yaw, float pitch) {
+        player.setYRot(yaw);
+        player.setXRot(pitch);
+        player.connection.send(new ServerboundMovePlayerPacket.Rot(
+                yaw, pitch, player.onGround(), player.horizontalCollision));
     }
 
     private static int pickSlot(LocalPlayer player) {
