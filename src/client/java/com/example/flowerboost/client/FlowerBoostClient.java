@@ -31,7 +31,7 @@ import java.util.Random;
 
 public class FlowerBoostClient implements ClientModInitializer {
 
-    private static final int WAIT_TICKS = 4; // czas na odpowiedź serwera po bone mealu
+    private static final int WAIT_TICKS = 8; // czas na odpowiedź serwera po bone mealu
     private static final int MAX_PLACE = 30;
 
     private static int countdown = -1;
