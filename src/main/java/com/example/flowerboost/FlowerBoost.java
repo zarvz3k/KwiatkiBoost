@@ -3,8 +3,8 @@ package com.example.flowerboost;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
-import net.minecraft.server.command.CommandManager;
-import net.minecraft.text.Text;
+import net.minecraft.commands.Commands;
+import net.minecraft.network.chat.Component;
 
 public class FlowerBoost implements ModInitializer {
     @Override
@@ -12,24 +12,24 @@ public class FlowerBoost implements ModInitializer {
         FlowerConfig.load();
 
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
-                dispatcher.register(CommandManager.literal("flowerboost")
-                        .requires(src -> src.hasPermissionLevel(2))
-                        .then(CommandManager.literal("count")
-                                .then(CommandManager.argument("n", IntegerArgumentType.integer(0, 50))
+                dispatcher.register(Commands.literal("flowerboost")
+                        .requires(src -> src.hasPermission(2))
+                        .then(Commands.literal("count")
+                                .then(Commands.argument("n", IntegerArgumentType.integer(0, 50))
                                         .executes(ctx -> {
                                             FlowerConfig.flowerCount = IntegerArgumentType.getInteger(ctx, "n");
                                             FlowerConfig.save();
-                                            ctx.getSource().sendFeedback(
-                                                    () -> Text.literal("Kwiatków na bone meal: " + FlowerConfig.flowerCount), true);
+                                            ctx.getSource().sendSuccess(
+                                                    () -> Component.literal("Kwiatków na bone meal: " + FlowerConfig.flowerCount), true);
                                             return 1;
                                         })))
-                        .then(CommandManager.literal("radius")
-                                .then(CommandManager.argument("n", IntegerArgumentType.integer(1, 10))
+                        .then(Commands.literal("radius")
+                                .then(Commands.argument("n", IntegerArgumentType.integer(1, 10))
                                         .executes(ctx -> {
                                             FlowerConfig.radius = IntegerArgumentType.getInteger(ctx, "n");
                                             FlowerConfig.save();
-                                            ctx.getSource().sendFeedback(
-                                                    () -> Text.literal("Zasięg: " + FlowerConfig.radius), true);
+                                            ctx.getSource().sendSuccess(
+                                                    () -> Component.literal("Zasięg: " + FlowerConfig.radius), true);
                                             return 1;
                                         })))));
     }
